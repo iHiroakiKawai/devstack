@@ -1033,6 +1033,11 @@ if is_service_enabled quantum; then
         Q_PLUGIN_CONF_FILENAME=linuxbridge_conf.ini
         Q_DB_NAME="quantum_linux_bridge"
         Q_PLUGIN_CLASS="quantum.plugins.linuxbridge.LinuxBridgePlugin.LinuxBridgePlugin"
+    elif [[ "$Q_PLUGIN" = "nicira" ]]; then
+        Q_PLUGIN_CONF_PATH=etc/quantum/plugins/nicira
+        Q_PLUGIN_CONF_FILENAME=nvp.ini
+        Q_DB_NAME="quantum_dummy"
+        Q_PLUGIN_CLASS="quantum.plugins.nicira.nicira_nvp_plugin.QuantumPlugin.NvpPlugin"
     else
         echo "Unknown Quantum plugin '$Q_PLUGIN'.. exiting"
         exit 1
@@ -1146,6 +1151,18 @@ if is_service_enabled m-svc; then
     melange mac_address_range create cidr=$M_MAC_RANGE
 fi
 
+if is_service_enabled n-net && is_service_enabled quantum; then
+	if [[ "$Q_PLUGIN" = "nicira" ]]; then
+		OVS_BRIDGE=${OVS_BRIDGE:-br-int}
+		for PORT in `sudo ovs-vsctl --no-wait list-ports $OVS_BRIDGE`; do
+		    if [[ "$PORT" =~ tap* ]]; then echo `sudo ip link delete $PORT` > /dev/null; fi
+		    sudo ovs-vsctl --no-wait del-port $OVS_BRIDGE $PORT
+		done
+		sudo ovs-vsctl --no-wait -- --if-exists del-br $OVS_BRIDGE
+		sudo ovs-vsctl --no-wait add-br $OVS_BRIDGE
+		sudo ovs-vsctl --no-wait br-set-external-id $OVS_BRIDGE bridge-id br-int
+	fi
+fi
 
 # Nova
 # ----
@@ -1702,6 +1719,9 @@ if is_service_enabled quantum; then
     elif [[ "$Q_PLUGIN" = "linuxbridge" ]]; then
         NOVA_VIF_DRIVER="nova.virt.libvirt.vif.QuantumLinuxBridgeVIFDriver"
         LINUXNET_VIF_DRIVER="nova.network.linux_net.QuantumLinuxBridgeInterfaceDriver"
+    elif [[ "$Q_PLUGIN" = "nicira" ]]; then
+        NOVA_VIF_DRIVER="nova.virt.libvirt.vif.LibvirtOpenVswitchDriver"
+        LINUXNET_VIF_DRIVER="nova.network.linux_net.LinuxOVSInterfaceDriver"
     fi
     add_nova_opt "libvirt_vif_type=ethernet"
     add_nova_opt "libvirt_vif_driver=$NOVA_VIF_DRIVER"
